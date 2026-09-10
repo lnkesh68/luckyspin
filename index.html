@@ -68,11 +68,11 @@
     }
     .subtitle { font-size: 13px; color: var(--text-dim); margin-bottom: 26px; }
 
-    /* wheel container */
+    /* Wheel Container */
     .wheel-wrapper {
       position: relative;
-      width: 250px;
-      height: 250px;
+      width: 270px;
+      height: 270px;
       margin: 6px auto 24px;
     }
     .wheel-glow {
@@ -117,18 +117,6 @@
     #spinBtn:active { transform: translate(-50%, -50%) scale(0.92); }
     #spinBtn:disabled { opacity: 0.55; cursor: not-allowed; }
 
-    .info {
-      font-size: 12px; color: var(--text-dim);
-      margin-bottom: 22px; line-height: 1.7;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 14px; padding: 14px 16px;
-      text-align: left;
-      position: relative;
-      z-index: 1;
-    }
-    .info b { color: #f2eefc; }
-
     .result-area {
       margin-top: 4px;
       background: rgba(0,0,0,0.35);
@@ -160,8 +148,8 @@
     .btn-ad:active { transform: scale(0.97); }
 
     .footer-note {
-      font-size: 0.7rem; text-align: center; margin-top: 18px;
-      color: rgba(237,233,254,0.35);
+      font-size: 0.75rem; text-align: center; margin-top: 18px;
+      color: rgba(237,233,254,0.45);
       position: relative; z-index: 1;
     }
   </style>
@@ -170,7 +158,7 @@
 <div class="card">
   <div class="eyebrow">Earning Buddy Bot</div>
   <h1>Spin & Win</h1>
-  <p class="subtitle">One spin a day, one shot at the jackpot</p>
+  <p class="subtitle">One spin a day, one shot at the reward</p>
 
   <div class="wheel-wrapper">
     <div class="wheel-glow"></div>
@@ -186,35 +174,29 @@
 </div>
 
 <script>
-  // --------------------------------------------------------------
-  // Rewards with WEIGHTED probability (higher weight = more common)
-  // --------------------------------------------------------------
+  // Equal slices with distinct colors and large text rewards
   const SEGMENTS = [
-    { name: "₹0.5", value: 0.5, type: "cash", weight: 30 },
-    { name: "₹1",   value: 1,   type: "cash", weight: 25 },
-    { name: "₹2",   value: 2,   type: "cash", weight: 20 },
-    { name: "₹3",   value: 3,   type: "cash", weight: 15 },
-    { name: "₹5",   value: 5,   type: "cash", weight: 10 }
+    { name: "₹0.5", value: 0.5, type: "cash" },
+    { name: "₹1",   value: 1,   type: "cash" },
+    { name: "₹2",   value: 2,   type: "cash" },
+    { name: "₹3",   value: 3,   type: "cash" },
+    { name: "₹5",   value: 5,   type: "cash" },
+    { name: "₹0",   value: 0,   type: "cash" }
   ];
 
-  // Calculate angles based on weight
-  let totalWeight = SEGMENTS.reduce((s, seg) => s + seg.weight, 0);
+  const sliceAngle = 360 / SEGMENTS.length;
   let segmentsWithAngle = [];
-  let start = 0;
-  for (let seg of SEGMENTS) {
-    let angle = (seg.weight / totalWeight) * 360;
+  for (let i = 0; i < SEGMENTS.length; i++) {
     segmentsWithAngle.push({
-      ...seg,
-      start: start,
-      end: start + angle,
-      angle: angle
+      ...SEGMENTS[i],
+      start: i * sliceAngle,
+      end: (i + 1) * sliceAngle,
+      angle: sliceAngle
     });
-    start += angle;
   }
 
-  // Colors (distinct, vibrant palette - one clear color per slice, like before)
-  const colors = ["#FF5252", "#FF8A65", "#FFD966", "#4CAF50", "#2196F3"];
-  let segmentColors = segmentsWithAngle.map((_,i) => colors[i % colors.length]);
+  // High contrast vibrant palette for equal slices
+  const colors = ["#FF5252", "#FF8A65", "#FFD966", "#4CAF50", "#2196F3", "#9C27B0"];
 
   const canvas = document.getElementById('wheelCanvas');
   const ctx = canvas.getContext('2d');
@@ -233,62 +215,80 @@
     document.getElementById('resultMessage').innerHTML = "⚠️ Error: User ID missing. Restart bot.";
   }
 
-  // Backend URL (same as your bot's domain - Railway)
+  // Backend URL
   const BACKEND_URL = "https://earning-bot-production.up.railway.app";
 
   function drawWheel(rotationDeg = 0) {
     const size = canvas.width;
-    const center = size/2;
+    const center = size / 2;
     const radius = center - 6;
     ctx.clearRect(0, 0, size, size);
-    for (let i=0; i<segmentsWithAngle.length; i++) {
+
+    for (let i = 0; i < segmentsWithAngle.length; i++) {
       const seg = segmentsWithAngle[i];
       const startAng = seg.start + rotationDeg;
       const endAng = seg.end + rotationDeg;
+
+      // Slice Path
       ctx.beginPath();
       ctx.moveTo(center, center);
-      ctx.arc(center, center, radius, startAng * Math.PI/180, endAng * Math.PI/180);
+      ctx.arc(center, center, radius, startAng * Math.PI / 180, endAng * Math.PI / 180);
       ctx.closePath();
-      ctx.fillStyle = segmentColors[i];
+      ctx.fillStyle = colors[i % colors.length];
       ctx.fill();
-      ctx.save();
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = "rgba(10,10,18,0.85)";
-      ctx.lineWidth = 2;
+
+      // Border lines
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.lineWidth = 3;
       ctx.stroke();
-      // text
+
+      // Large bold text positioning
       ctx.save();
       ctx.translate(center, center);
-      ctx.rotate((startAng + seg.angle/2) * Math.PI/180);
+      ctx.rotate((startAng + seg.angle / 2) * Math.PI / 180);
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.font = "bold 16px 'Segoe UI'";
-      ctx.fillStyle = "#1f1f1f";
-      ctx.fillText(seg.name, radius * 0.7, 6);
+      ctx.font = "800 28px 'Segoe UI', sans-serif"; // Large bold text
+      ctx.fillStyle = "#ffffff";
+      ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
+      ctx.shadowBlur = 4;
+      ctx.fillText(seg.name, radius * 0.65, 0);
       ctx.restore();
     }
-    // center circle
+
+    // Outer Rim
     ctx.beginPath();
-    ctx.arc(center, center, 24, 0, 2*Math.PI);
-    ctx.fillStyle = "rgba(20,16,31,0.9)";
+    ctx.arc(center, center, radius, 0, 2 * Math.PI);
+    ctx.strokeStyle = "#f5b942";
+    ctx.lineWidth = 6;
+    ctx.stroke();
+
+    // Center Cap
+    ctx.beginPath();
+    ctx.arc(center, center, 32, 0, 2 * Math.PI);
+    ctx.fillStyle = "rgba(10, 10, 18, 0.95)";
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(center, center, 17, 0, 2*Math.PI);
+    ctx.arc(center, center, 22, 0, 2 * Math.PI);
     ctx.fillStyle = "#f5b942";
     ctx.fill();
-    // pointer at top
+
+    // Pointer at top (Pointer points DOWN at the top center)
     ctx.beginPath();
-    ctx.moveTo(center-13, 14);
-    ctx.lineTo(center, 0);
-    ctx.lineTo(center+13, 14);
-    ctx.fillStyle = "#ffd97a";
+    ctx.moveTo(center - 16, 8);
+    ctx.lineTo(center, 28);
+    ctx.lineTo(center + 16, 8);
+    ctx.closePath();
+    ctx.fillStyle = "#ff4d4d";
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
     ctx.fill();
+    ctx.stroke();
   }
 
-  // Whichever number the pointer stops on is the winner - the spin distance is
-  // random, not the outcome. Long spin-up + slow deceleration for a real wheel feel.
   function getCurrentSegment(rotation) {
-    const pointerAngle = (360 - (rotation % 360)) % 360;
+    // Top pointer is at 270 degrees in canvas math
+    const pointerAngle = (270 - (rotation % 360) + 360) % 360;
     for (let seg of segmentsWithAngle) {
       if (pointerAngle >= seg.start && pointerAngle < seg.end) return seg;
     }
@@ -303,12 +303,12 @@
     const spinBtn = document.getElementById('spinBtn');
     spinBtn.disabled = true;
 
-    const fullSpins = 6 + Math.floor(Math.random() * 3); // 6-8 full rotations
-    const spinDeg = fullSpins * 360 + Math.random() * 360; // random landing spot
+    const fullSpins = 5 + Math.floor(Math.random() * 3); // 5 to 7 full rotations
+    const spinDeg = fullSpins * 360 + Math.random() * 360; 
     const targetRotation = currentRotation + spinDeg;
 
     const startTime = performance.now();
-    const duration = 4200; // long spin-up + slow, realistic deceleration
+    const duration = 4000;
 
     function animate(now) {
       const elapsed = now - startTime;
@@ -335,6 +335,12 @@
     const msgDiv = document.getElementById('resultMessage');
     const extraDiv = document.getElementById('extraAction');
     extraDiv.innerHTML = '';
+
+    if (segment.value === 0) {
+      msgDiv.innerHTML = `😔 Better luck next time!`;
+      return;
+    }
+
     if (segment.type === "cash") {
       const amt = segment.value;
       msgDiv.innerHTML = `🎉 Congrats! You won ₹${amt}! 🎉<br>Adding to your wallet...`;
@@ -349,15 +355,6 @@
       } catch(e) {
         msgDiv.innerHTML = `⚠️ Network error. Reward wasn't saved.`;
       }
-    }
-    else if (segment.type === "ads") {
-      msgDiv.innerHTML = `🎁 You got an Ads Task! 🎁<br>Watch an ad and get ₹5-₹7 instantly!`;
-      const adUrl = `${BACKEND_URL}/ad?uid=${userId}&lang=en`;
-      const btn = document.createElement('button');
-      btn.innerText = "▶️ Watch Ad & Earn";
-      btn.className = "btn-ad";
-      btn.onclick = () => { tg.openLink(adUrl); };
-      extraDiv.appendChild(btn);
     }
   }
 
