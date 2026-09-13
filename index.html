@@ -68,7 +68,6 @@
     }
     .subtitle { font-size: 13px; color: var(--text-dim); margin-bottom: 26px; }
 
-    /* Wheel Container */
     .wheel-wrapper {
       position: relative;
       width: 270px;
@@ -126,32 +125,8 @@
       position: relative;
       z-index: 1;
     }
-    .message {
-      font-size: 14px;
-      font-weight: 500;
-      margin-bottom: 6px;
-      line-height: 1.5;
-    }
-    .btn-ad {
-      background: linear-gradient(135deg, var(--accent-teal), #22b6a2);
-      border: none;
-      padding: 11px 18px;
-      border-radius: 40px;
-      color: #04231e;
-      font-weight: 700;
-      font-size: 0.9rem;
-      cursor: pointer;
-      width: 100%;
-      margin-top: 6px;
-      box-shadow: 0 6px 16px rgba(52, 224, 201, 0.25);
-    }
-    .btn-ad:active { transform: scale(0.97); }
-
-    .footer-note {
-      font-size: 0.75rem; text-align: center; margin-top: 18px;
-      color: rgba(237,233,254,0.45);
-      position: relative; z-index: 1;
-    }
+    .message { font-size: 14px; font-weight: 500; margin-bottom: 6px; line-height: 1.5; }
+    .footer-note { font-size: 0.75rem; text-align: center; margin-top: 18px; color: rgba(237,233,254,0.45); position: relative; z-index: 1; }
   </style>
 </head>
 <body>
@@ -168,38 +143,57 @@
 
   <div class="result-area">
     <div class="message" id="resultMessage">✨ Tap SPIN and try your luck ✨</div>
-    <div id="extraAction"></div>
   </div>
   <div class="footer-note">Daily limit: 1 spin • Come back tomorrow</div>
 </div>
 
 <script>
-  // Equal slices with distinct colors and large text rewards
+  /*
+    Matches the ACTUAL backend contract in the bot code:
+      GET /spin-reward?user_id=<id>&amount=<1-5>[&key=<SPIN_SECRET>]
+      -> plain text: "OK" | "Already Claimed Today" | "Forbidden" |
+                     "Not Verified" | "User Not Found" | "Rate Limited" | "Bad Request"
+
+    Backend already:
+      - clamps amount to the 1–5 range (server-side, can't be bypassed higher)
+      - enforces "1 spin per day" ATOMICALLY (find_one_and_update), so even
+        if this page is called twice, only one actually gets credited
+      - checks banned / channel-verification status server-side
+
+    Because the backend clamps any amount below 1 up to 1, this page must
+    NEVER send an amount below ₹1 (a "₹0.5" or "₹0 — better luck" segment
+    would incorrectly get force-credited as ₹1 by the clamp). So the losing
+    segment is handled entirely client-side and never calls the backend.
+
+    If you set SPIN_SECRET on the server, put the exact same value in
+    SPIN_KEY below — otherwise leave it as "".
+  */
+
+  const BACKEND_URL = "https://earning-bot-2-ofkp.onrender.com";
+  const SPIN_KEY = ""; // fill in only if SPIN_SECRET env var is set on the server
+
+  // Only ₹1–₹5 are real backend-credited outcomes; "Try Again" never calls the server.
   const SEGMENTS = [
-    { name: "₹0.5", value: 0.5, type: "cash" },
-    { name: "₹1",   value: 1,   type: "cash" },
-    { name: "₹2",   value: 2,   type: "cash" },
-    { name: "₹3",   value: 3,   type: "cash" },
-    { name: "₹5",   value: 5,   type: "cash" },
-    { name: "₹0",   value: 0,   type: "cash" }
+    { name: "₹1",  value: 1, isWin: true },
+    { name: "₹2",  value: 2, isWin: true },
+    { name: "₹1",  value: 1, isWin: true },
+    { name: "₹3",  value: 3, isWin: true },
+    { name: "Try Again", value: 0, isWin: false },
+    { name: "₹5",  value: 5, isWin: true }
   ];
 
   const sliceAngle = 360 / SEGMENTS.length;
-  let segmentsWithAngle = [];
-  for (let i = 0; i < SEGMENTS.length; i++) {
-    segmentsWithAngle.push({
-      ...SEGMENTS[i],
-      start: i * sliceAngle,
-      end: (i + 1) * sliceAngle,
-      angle: sliceAngle
-    });
-  }
+  const segmentsWithAngle = SEGMENTS.map((s, i) => ({
+    ...s, start: i * sliceAngle, end: (i + 1) * sliceAngle, angle: sliceAngle
+  }));
 
-  // High contrast vibrant palette for equal slices
-  const colors = ["#FF5252", "#FF8A65", "#FFD966", "#4CAF50", "#2196F3", "#9C27B0"];
+  const colors = ["#FF5252", "#FF8A65", "#FFD966", "#4CAF50", "#607D8B", "#2196F3"];
 
   const canvas = document.getElementById('wheelCanvas');
   const ctx = canvas.getContext('2d');
+  const spinBtn = document.getElementById('spinBtn');
+  const msgDiv = document.getElementById('resultMessage');
+
   let spinning = false;
   let currentRotation = 0;
   let animFrame = null;
@@ -208,15 +202,12 @@
   tg.ready();
   tg.expand();
 
-  // get user_id from URL
   const urlParams = new URLSearchParams(window.location.search);
   const userId = urlParams.get('user_id');
   if (!userId) {
-    document.getElementById('resultMessage').innerHTML = "⚠️ Error: User ID missing. Restart bot.";
+    msgDiv.innerHTML = "⚠️ Error: User ID missing. Restart bot.";
+    spinBtn.disabled = true;
   }
-
-  // Backend URL
-  const BACKEND_URL = "https://earning-bot-2-ofkp.onrender.com";
 
   function drawWheel(rotationDeg = 0) {
     const size = canvas.width;
@@ -229,7 +220,6 @@
       const startAng = seg.start + rotationDeg;
       const endAng = seg.end + rotationDeg;
 
-      // Slice Path
       ctx.beginPath();
       ctx.moveTo(center, center);
       ctx.arc(center, center, radius, startAng * Math.PI / 180, endAng * Math.PI / 180);
@@ -237,18 +227,16 @@
       ctx.fillStyle = colors[i % colors.length];
       ctx.fill();
 
-      // Border lines
       ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
       ctx.lineWidth = 3;
       ctx.stroke();
 
-      // Large bold text positioning
       ctx.save();
       ctx.translate(center, center);
       ctx.rotate((startAng + seg.angle / 2) * Math.PI / 180);
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.font = "800 28px 'Segoe UI', sans-serif"; // Large bold text
+      ctx.font = seg.name.length > 3 ? "800 18px 'Segoe UI', sans-serif" : "800 28px 'Segoe UI', sans-serif";
       ctx.fillStyle = "#ffffff";
       ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
       ctx.shadowBlur = 4;
@@ -256,14 +244,12 @@
       ctx.restore();
     }
 
-    // Outer Rim
     ctx.beginPath();
     ctx.arc(center, center, radius, 0, 2 * Math.PI);
     ctx.strokeStyle = "#f5b942";
     ctx.lineWidth = 6;
     ctx.stroke();
 
-    // Center Cap
     ctx.beginPath();
     ctx.arc(center, center, 32, 0, 2 * Math.PI);
     ctx.fillStyle = "rgba(10, 10, 18, 0.95)";
@@ -273,7 +259,6 @@
     ctx.fillStyle = "#f5b942";
     ctx.fill();
 
-    // Pointer at top (Pointer points DOWN at the top center)
     ctx.beginPath();
     ctx.moveTo(center - 16, 8);
     ctx.lineTo(center, 28);
@@ -287,7 +272,6 @@
   }
 
   function getCurrentSegment(rotation) {
-    // Top pointer is at 270 degrees in canvas math
     const pointerAngle = (270 - (rotation % 360) + 360) % 360;
     for (let seg of segmentsWithAngle) {
       if (pointerAngle >= seg.start && pointerAngle < seg.end) return seg;
@@ -298,33 +282,29 @@
   function easeOutQuint(t) { return 1 - Math.pow(1 - t, 5); }
 
   function spinWheel() {
-    if (spinning) return;
+    if (spinning || spinBtn.disabled) return;
     spinning = true;
-    const spinBtn = document.getElementById('spinBtn');
     spinBtn.disabled = true;
+    msgDiv.innerHTML = "🎡 Spinning...";
 
-    const fullSpins = 5 + Math.floor(Math.random() * 3); // 5 to 7 full rotations
-    const spinDeg = fullSpins * 360 + Math.random() * 360; 
+    const fullSpins = 5 + Math.floor(Math.random() * 3);
+    const spinDeg = fullSpins * 360 + Math.random() * 360;
     const targetRotation = currentRotation + spinDeg;
-
     const startTime = performance.now();
     const duration = 4000;
 
     function animate(now) {
       const elapsed = now - startTime;
-      let t = Math.min(1, elapsed / duration);
+      const t = Math.min(1, elapsed / duration);
       const eased = easeOutQuint(t);
-      const newRot = currentRotation + spinDeg * eased;
-      drawWheel(newRot);
+      drawWheel(currentRotation + spinDeg * eased);
       if (t < 1) {
         animFrame = requestAnimationFrame(animate);
       } else {
         currentRotation = targetRotation % 360;
         drawWheel(currentRotation);
         const winningSegment = getCurrentSegment(currentRotation);
-        spinning = false;
-        spinBtn.disabled = false;
-        processReward(winningSegment);
+        processReward(winningSegment); // button stays disabled until this finishes
       }
     }
     if (animFrame) cancelAnimationFrame(animFrame);
@@ -332,33 +312,57 @@
   }
 
   async function processReward(segment) {
-    const msgDiv = document.getElementById('resultMessage');
-    const extraDiv = document.getElementById('extraAction');
-    extraDiv.innerHTML = '';
-
-    if (segment.value === 0) {
-      msgDiv.innerHTML = `😔 Better luck next time!`;
+    // "Try Again" slice never calls the backend — clamp would force a ₹1
+    // credit otherwise, which is wrong for a losing spin.
+    if (!segment.isWin) {
+      msgDiv.innerHTML = "😔 Better luck next time!";
+      spinning = false;
+      // Backend still only allows 1 spin/day, but since we never called it,
+      // it doesn't know this user "used" their spin. So we still let them
+      // hit the actual reward endpoint with a real amount below, OR simplest:
+      // keep button disabled for the rest of today's session to match the
+      // "1 spin/day" promise shown in the UI.
+      spinBtn.disabled = true;
       return;
     }
 
-    if (segment.type === "cash") {
-      const amt = segment.value;
-      msgDiv.innerHTML = `🎉 Congrats! You won ₹${amt}! 🎉<br>Adding to your wallet...`;
-      try {
-        const url = `${BACKEND_URL}/spin-reward?user_id=${userId}&amount=${amt}`;
-        const res = await fetch(url);
-        if (res.ok) {
-          msgDiv.innerHTML = `✅ ₹${amt} added to your wallet! 🎊`;
-        } else {
-          msgDiv.innerHTML = `⚠️ Server error. Please try again later.`;
-        }
-      } catch(e) {
-        msgDiv.innerHTML = `⚠️ Network error. Reward wasn't saved.`;
+    const amt = segment.value; // always 1-5, matches backend's clamp range
+    msgDiv.innerHTML = `🎉 You won ₹${amt}! Adding to your wallet...`;
+
+    try {
+      let url = `${BACKEND_URL}/spin-reward?user_id=${encodeURIComponent(userId)}&amount=${amt}`;
+      if (SPIN_KEY) url += `&key=${encodeURIComponent(SPIN_KEY)}`;
+      const res = await fetch(url, { method: "GET" });
+      const text = (await res.text()).trim();
+
+      if (res.status === 429) {
+        msgDiv.innerHTML = "⏳ Too many attempts — wait a bit and reopen from the bot.";
+        spinBtn.disabled = false; // transient, safe to retry
+      } else if (text === "OK") {
+        msgDiv.innerHTML = `✅ ₹${amt} added to your wallet! 🎊`;
+        spinBtn.disabled = true; // spin used for today
+      } else if (text === "Already Claimed Today") {
+        msgDiv.innerHTML = "✅ You've already used today's spin. Come back tomorrow!";
+        spinBtn.disabled = true;
+      } else if (text === "Not Verified") {
+        msgDiv.innerHTML = "⚠️ Please join the required channel first, then reopen from the bot.";
+        spinBtn.disabled = true;
+      } else if (text === "Forbidden") {
+        msgDiv.innerHTML = "🚫 Your account can't claim this reward.";
+        spinBtn.disabled = true;
+      } else {
+        msgDiv.innerHTML = `⚠️ Server said: ${text || "unknown error"}. Try again from the bot.`;
+        spinBtn.disabled = false;
       }
+    } catch (e) {
+      msgDiv.innerHTML = "⚠️ Network error. If your balance wasn't updated, reopen and try again.";
+      spinBtn.disabled = false; // network failure, safe to retry — backend is idempotent per day
+    } finally {
+      spinning = false;
     }
   }
 
-  document.getElementById('spinBtn').addEventListener('click', spinWheel);
+  spinBtn.addEventListener('click', spinWheel);
   drawWheel(0);
 </script>
 </body>
